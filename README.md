@@ -415,6 +415,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/calculate \
 3) Если эт опоследняя задача для данного выражения, то он присваивает выражению результат и статус ``done``, после чего удаляет все связанные с этим выражением задачи для освобождения места.
 
 ![TaskHandler](https://github.com/user-attachments/assets/099e42f9-d858-44d7-98fc-ebb77dcfa4ec)
+![handleTaskget](https://github.com/user-attachments/assets/d7dd4eb1-b5cf-432b-b57f-2ccde0f7a501)
 
 ## Агент
 
