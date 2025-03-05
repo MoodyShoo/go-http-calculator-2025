@@ -269,7 +269,7 @@ func (o *Orchestrator) handleTaskPost(result models.TaskResult) error {
 		return fmt.Errorf("task not found")
 	}
 
-	// Обновляем статус задачи
+	// Обновляет статус задачи
 	if result.Error != "" {
 		task.Status = models.StatusError
 		task.Error = result.Error
@@ -280,7 +280,7 @@ func (o *Orchestrator) handleTaskPost(result models.TaskResult) error {
 
 	o.tasks[taskIndex] = task
 
-	// Обновляем аргументы в других задачах, если они ссылаются на эту задачу
+	// Обновляет аргументы в других задачах, если они ссылаются на эту задачу
 	for i, t := range o.tasks {
 		if t.ExpressionId == task.ExpressionId && t.Status == models.StatusPending {
 			if strings.HasPrefix(t.Arg1, "task") && t.Arg1 == fmt.Sprintf("task%d", task.Id) {
@@ -313,7 +313,7 @@ func (o *Orchestrator) handleTaskPost(result models.TaskResult) error {
 		}
 		o.expressions[task.ExpressionId] = expression
 
-		// Удаляем все задачи, связанные с выполненным выражением
+		// Удаляет все задачи, связанные с выполненным выражением
 		var remainingTasks []models.Task
 		for _, t := range o.tasks {
 			if t.ExpressionId != expression.Id {
