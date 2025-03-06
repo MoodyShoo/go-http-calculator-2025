@@ -192,7 +192,7 @@ https://github.com/MoodyShoo/go-http-calculator-2025.git
 2. Перейти в репозиторий:
 
 ```bash
-cd go-http-calculator
+cd go-http-calculator-2025
 ```
 
 3. По умолчанию сервер запускается на порту 8080.
