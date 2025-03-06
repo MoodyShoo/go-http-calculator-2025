@@ -184,9 +184,9 @@ Yandex Golang Practice
 
 ```bash
 # ssh
-git clone git@github.com:MoodyShoo/go-http-calculator.git
+git clone git@github.com:MoodyShoo/go-http-calculator-2025.git
 # https 
-https://github.com/MoodyShoo/go-http-calculator.git
+https://github.com/MoodyShoo/go-http-calculator-2025.git
 ```
 
 2. Перейти в репозиторий:
