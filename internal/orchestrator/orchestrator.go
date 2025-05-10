@@ -1,20 +1,26 @@
 package orchestrator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/MoodyShoo/go-http-calculator/internal/models"
+	pb "github.com/MoodyShoo/go-http-calculator/internal/proto"
 	"github.com/MoodyShoo/go-http-calculator/pkg/calculation"
+	"google.golang.org/grpc"
 )
 
 type Orchestrator struct {
+	pb.OrchestratorServiceServer
 	config           *Config
 	expressions      map[int]models.Expression
 	nextExpressionId int
@@ -227,37 +233,49 @@ func (o *Orchestrator) ExpressionIdHandler(w http.ResponseWriter, r *http.Reques
 	sendResponse(w, &expression, http.StatusOK)
 }
 
-// handleTaskGet обрабатывает GET-запрос для получения задачи
-func (o *Orchestrator) handleTaskGet() (*models.Task, error) {
-	for i, t := range o.tasks {
-		if t.Status == models.StatusPending && !isTaskReference(t.Arg1) && !isTaskReference(t.Arg2) {
-			t.Status = models.StatusComputing
-			o.tasks[i] = t
+func (o *Orchestrator) FetchTask(ctx context.Context, in *pb.TaskRequest) (*pb.TaskResponse, error) {
+	log.Println("Invoked FetchTask: ", in)
 
-			expression := o.expressions[t.ExpressionId]
+	for i, task := range o.tasks {
+		if task.Status == models.StatusPending && !isTaskReference(task.Arg1) && !isTaskReference(task.Arg2) {
+			task.Status = models.StatusComputing
+			o.tasks[i] = task
+
+			expression := o.expressions[task.ExpressionId]
 			if expression.Status != models.StatusDone {
 				expression.Status = models.StatusComputing
-				o.expressions[t.ExpressionId] = expression
+				o.expressions[task.ExpressionId] = expression
 			}
 
-			return &t, nil
+			return &pb.TaskResponse{
+				Task: &pb.Task{
+					Id:            int64(task.Id),
+					ExpressionId:  int64(task.ExpressionId),
+					Arg1:          task.Arg1,
+					Arg2:          task.Arg2,
+					Operation:     task.Operation,
+					OperationTime: int64(task.OperationTime),
+					Status:        string(task.Status),
+					Result:        task.Result,
+					Error:         task.Error,
+				},
+			}, nil
 		}
 	}
+
 	return nil, fmt.Errorf("no tasks available")
 }
 
-// isTaskReference проверяет, является ли аргумент ссылкой на задачу
-func isTaskReference(arg string) bool {
-	return strings.HasPrefix(arg, "task")
-}
+// SubmitTaskResult обрабатывает запрос на обновление результата задачи
+func (o *Orchestrator) SendResult(ctx context.Context, in *pb.TaskResult) (*pb.SuccessResponse, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 
-// handleTaskPost обрабатывает POST-запрос для обновления результата задачи
-func (o *Orchestrator) handleTaskPost(result models.TaskResult) error {
 	var task models.Task
 	var taskIndex int
 	var found bool
 	for i, t := range o.tasks {
-		if t.Id == result.Id {
+		if t.Id == int(in.Id) {
 			task = t
 			taskIndex = i
 			found = true
@@ -266,16 +284,16 @@ func (o *Orchestrator) handleTaskPost(result models.TaskResult) error {
 	}
 
 	if !found {
-		return fmt.Errorf("task not found")
+		return nil, fmt.Errorf("task not found")
 	}
 
 	// Обновляет статус задачи
-	if result.Error != "" {
+	if in.Error != "" {
 		task.Status = models.StatusError
-		task.Error = result.Error
+		task.Error = in.Error
 	} else {
 		task.Status = models.StatusDone
-		task.Result = result.Result
+		task.Result = in.Result
 	}
 
 	o.tasks[taskIndex] = task
@@ -293,7 +311,7 @@ func (o *Orchestrator) handleTaskPost(result models.TaskResult) error {
 		}
 	}
 
-	// Проверякт, все ли задачи для этого выражения выполнены
+	// Проверка, все ли задачи для этого выражения выполнены
 	allTasksDone := true
 	for _, t := range o.tasks {
 		if t.ExpressionId == task.ExpressionId && t.Status != models.StatusDone && t.Status != models.StatusError {
@@ -323,56 +341,40 @@ func (o *Orchestrator) handleTaskPost(result models.TaskResult) error {
 		o.tasks = remainingTasks
 	}
 
-	return nil
+	return &pb.SuccessResponse{Message: "Task result accepted."}, nil
 }
 
-// TaskHandler обрабатывает запросы, связанные с задачами
-func (o *Orchestrator) TaskHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("TaskHandler: started with method %s", r.Method)
-	defer log.Printf("TaskHandler: finished")
-
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	switch r.Method {
-	case http.MethodGet:
-		task, err := o.handleTaskGet()
-		if err != nil {
-			log.Printf("TaskHandler: %v", err)
-			sendError(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		sendResponse(w, task, http.StatusOK)
-
-	case http.MethodPost:
-		var result models.TaskResult
-		if err := json.NewDecoder(r.Body).Decode(&result); err != nil {
-			log.Printf("TaskHandler: failed to decode task result: %v", err)
-			sendError(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		if err := o.handleTaskPost(result); err != nil {
-			log.Printf("TaskHandler: %v", err)
-			sendError(w, err.Error(), http.StatusNotFound)
-			return
-		}
-
-		sendResponse(w, &models.SuccessResponse{Message: "Task result accepted."}, http.StatusOK)
-
-	default:
-		log.Printf("TaskHandler: method %s not allowed", r.Method)
-		sendError(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
+// isTaskReference проверяет, является ли аргумент ссылкой на задачу
+func isTaskReference(arg string) bool {
+	return strings.HasPrefix(arg, "task")
 }
 
-// RunServer запускает HTTP-сервер
+// RunServer запускает HTTP-сервер и gRPC сервер
 func (o *Orchestrator) RunServer() error {
 	http.HandleFunc(CalculateRoute, o.CalculateHandler)
 	http.HandleFunc(ExpressionsRoute, o.ExpressionsHandler)
 	http.HandleFunc(ExpressionIdRoute, o.ExpressionIdHandler)
-	http.HandleFunc(TaskRoute, o.TaskHandler)
 
-	log.Printf("Server running on: %s", o.config.Address)
+	// горутина для gRPC сервера
+	go func() {
+		host := "localhost"
+		port := "5000"
+		addr := fmt.Sprintf("%s:%s", host, port)
+		lis, err := net.Listen("tcp", addr)
+		if err != nil {
+			log.Println("error starting tcp listener:", err)
+			os.Exit(1)
+		}
+
+		grpcServer := grpc.NewServer()
+		pb.RegisterOrchestratorServiceServer(grpcServer, o)
+
+		log.Println("gRPC server started on", addr)
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Fatalf("Start gRPC server error: %v", err)
+		}
+	}()
+
+	log.Printf("HTTP server running on: %s", o.config.Address)
 	return http.ListenAndServe(":"+o.config.Address, nil)
 }

@@ -7,9 +7,9 @@ import (
 )
 
 func main() {
-	orch := orchestrator.New()
-	err := orch.RunServer()
-	if err != nil {
-		log.Fatalf("Start server error: %v", err)
+	orc := orchestrator.New()
+
+	if err := orc.RunServer(); err != nil {
+		log.Fatalf("Start HTTP server error: %v", err)
 	}
 }

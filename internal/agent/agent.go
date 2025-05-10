@@ -1,49 +1,54 @@
 package agent
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/MoodyShoo/go-http-calculator/internal/models"
+	pb "github.com/MoodyShoo/go-http-calculator/internal/proto"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 type Agent struct {
 	config *Config
+	client pb.OrchestratorServiceClient
 }
 
 func New() *Agent {
-	return &Agent{
-		config: configFromEnv(),
-	}
-}
+	conf := configFromEnv()
 
-func (a *Agent) fetchTask() (*models.Task, error) {
-	resp, err := http.Get("http://" + a.config.OrchestratorAddress + "/internal/task")
+	conn, err := grpc.NewClient(conf.OrchestratorGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch task: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("orchestrator returned status: %d", resp.StatusCode)
+		log.Fatalf("did not connect: %v", err)
 	}
 
-	var task models.Task
-	if err := json.NewDecoder(resp.Body).Decode(&task); err != nil {
-		return nil, fmt.Errorf("failed to decode task: %v", err)
-	}
+	client := pb.NewOrchestratorServiceClient(conn)
 
-	return &task, nil
+	return &Agent{
+		config: conf,
+		client: client,
+	}
 }
 
-// TODO: context?
-func (a *Agent) executeTask(task *models.Task) (float64, error) {
+func (a *Agent) fetchTask() (*pb.Task, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	task, err := a.client.FetchTask(ctx, &pb.TaskRequest{})
+
+	if err != nil {
+		return nil, fmt.Errorf("could not get task: %v", err)
+	}
+
+	return task.Task, nil
+}
+
+func (a *Agent) executeTask(task *pb.Task) (float64, error) {
 	timer := time.NewTimer(time.Duration(task.OperationTime) * time.Millisecond)
 	defer timer.Stop()
 
@@ -84,31 +89,24 @@ func parseArg(arg string) (float64, error) {
 	return strconv.ParseFloat(arg, 64)
 }
 
-func (a *Agent) sendResult(taskId int, result float64, taskError error) error {
-	resultData := models.TaskResult{
+func (a *Agent) sendResult(taskId int64, result float64, taskError error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	taskResult := &pb.TaskResult{
 		Id:     taskId,
 		Result: result,
 	}
 
 	if taskError != nil {
-		resultData.Error = taskError.Error()
+		taskResult.Error = taskError.Error()
 	}
 
-	jsonData, err := json.Marshal(resultData)
+	_, err := a.client.SendResult(ctx, taskResult)
+
 	if err != nil {
-		return fmt.Errorf("failed to marshal result: %v", err)
+		return fmt.Errorf("could not send result: %v", err)
 	}
-
-	resp, err := http.Post("http://"+a.config.OrchestratorAddress+"/internal/task", "application/json", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return fmt.Errorf("failed to send result: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("orchestrator returned status: %d", resp.StatusCode)
-	}
-
 	return nil
 }
 
@@ -146,8 +144,11 @@ func (a *Agent) RunGoroutines(num int) {
 	}
 }
 
-func (a *Agent) Run() error {
-	log.Printf("Agent running on: %s", a.config.Address)
+func (a *Agent) Run() {
+	var wt sync.WaitGroup
+	wt.Add(a.config.ComputingPower)
+	log.Printf("Agent listens: %s", a.config.OrchestratorGRPC)
 	a.RunGoroutines(a.config.ComputingPower)
-	return http.ListenAndServe(":"+a.config.Address, nil)
+
+	wt.Wait()
 }

@@ -1,6 +1,8 @@
 package orchestrator
 
 const (
+	RegisterRoute     = "/api/v1/register"
+	LoginRoute        = "/api/v1/login"
 	CalculateRoute    = "/api/v1/calculate"
 	ExpressionsRoute  = "/api/v1/expressions"
 	ExpressionIdRoute = "/api/v1/expressions/"

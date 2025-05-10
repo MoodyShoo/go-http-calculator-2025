@@ -1,0 +1,36 @@
+syntax = "proto3";
+package orchestrator;
+option go_package = "github.com/MoodyShoo/go-http-calculator/proto/";
+
+message Task {
+    int64 id = 1;
+    int64 expressionId = 2;
+    string arg1 = 3;
+    string arg2 = 4;
+    string operation = 5;
+    int64 operationTime = 6;
+    string status = 7;
+    double result = 8;
+    string error = 9;
+}
+
+message TaskRequest{}
+
+message TaskResponse{
+    Task task = 1;
+}
+
+message TaskResult{
+    int64 id = 1;
+    double result = 2;
+    string error = 3;
+}
+
+message SuccessResponse {
+    string message = 1;
+}
+
+service OrchestratorService {
+    rpc FetchTask(TaskRequest) returns (TaskResponse);
+    rpc SendResult(TaskResult) returns (SuccessResponse);
+}
