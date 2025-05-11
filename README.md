@@ -20,8 +20,7 @@ Yandex Golang Practice
   - [Сервер (Оркестратор)](#сервер-оркестратор)
     - [Принцип работы /api/v1/calculate](#принцип-работы-apiv1calculate)
     - [Принцип работы /api/v1/expressions](#принцип-работы-apiv1expressions)
-    - [Принцип работы /api/v1/expressions/{id}](#принцип-работы-apiv1expressionsid)
-    - [Принцип работы /internal/task](#принцип-работы-internaltask)
+    - [Принцип работы /api/v1/expressions/{id}](#принцип-работы-apiv1expressionsid))
   - [Агент](#агент)
     - [Получение задачи (fetchTask)](#получение-задачи-fetchtask)
     - [Выполнение задачи (executeTask)](#выполнение-задачи-executetask)
@@ -495,6 +494,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/calculate \
 6) После чего он формирует выражение и добавляет его в базу данных;
 7) В конце в слайс добавляются все таски.
 ![CalcHandler](https://github.com/user-attachments/assets/57b88336-372b-4324-912e-c9c9ffed693d)
+(Legacy схема. HTTP был заменён на gRPC)
 
 ### Принцип работы `/api/v1/expressions`
 
@@ -534,9 +534,12 @@ curl -X POST http://127.0.0.1:8080/api/v1/calculate \
 2) После чего он ищёт все зависимые от этой задачи другие задачи, и при их наличии заменяет на результат своих вычислений;
 3) Если эт опоследняя задача для данного выражения, то он присваивает выражению результат и статус ``done``, после чего удаляет все связанные с этим выражением задачи для освобождения места.
 
-![TaskHandler](https://github.com/user-attachments/assets/099e42f9-d858-44d7-98fc-ebb77dcfa4ec)
 ![handleTaskget](https://github.com/user-attachments/assets/ade9ba89-d3cc-4830-a6c7-00791df67b13)
+
+(Legacy схема. HTTP был заменён на gRPC)
+
 ![handleTaskPost](https://github.com/user-attachments/assets/233a02ef-bbc0-44a0-9a90-f8d2e7b4702c)
+
 
 ## Агент
 
