@@ -396,6 +396,11 @@ func (o *Orchestrator) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Login == "" || req.Password == "" {
+		util.SendError(w, "login or password can't be empty", http.StatusUnauthorized)
+		return
+	}
+
 	log.Printf("RegisterHandler: registering user with login %s", req.Login)
 
 	err := o.db.UserRepo.AddUser(req.Login, req.Password)

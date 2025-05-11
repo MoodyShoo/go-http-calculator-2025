@@ -36,11 +36,135 @@ Yandex Golang Practice
 
 ## API
 
+### Регистрация
+
+**Endpoint:** `POST /api/v1/register`
+
+**Тело запроса:** `Content-Type: application/json`
+
+#### Примеры запросов и ответов
+
+**Запрос:**
+
+```json
+{
+  "login": "test_user", "password": "qwerty"
+}
+```
+
+**Ответ (Status 200 OK):**
+
+```json
+// Пустое тело
+```
+
+---
+
+**Запрос (пользователь уже есть):**
+
+```json
+{
+  "login": "test_user", "password": "qwerty"
+}
+```
+
+**Ответ (Status 400 Bad Request):**
+
+```json
+{
+  "error": "user already exists"
+}
+```
+
+---
+
+**Запрос (пустые поля):**
+
+```json
+{
+  "login": "", "password": ""
+}
+```
+
+**Ответ (Status 401 Unauthorized):**
+
+```json
+{
+  "error": "login or password can't be empty"
+}
+```
+
+---
+
+### Регистрация
+
+**Endpoint:** `POST /api/v1/login`
+
+**Тело запроса:** `Content-Type: application/json`
+
+#### Примеры запросов и ответов
+
+**Запрос (пользователь есть):**
+
+```json
+{
+  "login": "test_user", "password": "qwerty"
+}
+```
+
+**Ответ (Status 200 OK):**
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NDY5OTA3MzMsImlhdCI6MTc0Njk5MDYxMywibmFtZSI6MSwibmJmIjoxNzQ2OTkwNjEzfQ.50OU0cLlqjszPRSA9jeXBA_FIgQNK6R8LbFvYe9lvWU"
+}
+```
+
+---
+
+**Запрос (пользователя нет):**
+
+```json
+{
+  "login": "test", "password": "qwerty"
+}
+```
+
+**Ответ (Status 401 Unauthorized):**
+
+```json
+{
+  "error": "user not found"
+}
+```
+
+---
+
+**Запрос (неверный пароль):**
+
+```json
+{
+  "login": "test_user", "password": "maybe_this"
+}
+```
+
+**Ответ (Status 401 Unauthorized):**
+
+```json
+{
+  "error": "invalid password"
+}
+```
+
+---
+
 ### Вычисление выражения
 
 **Endpoint:** `POST /api/v1/calculate`
 
 **Тело запроса:** `Content-Type: application/json`
+
+**В заголовке обязательно должен быть:** `Bearer <TOKEN>`
 
 #### Примеры запросов и ответов
 
@@ -102,6 +226,8 @@ Yandex Golang Practice
 
 **Endpoint:** `GET /api/v1/expressions`
 
+**В заголовке обязательно должен быть:** `Bearer <TOKEN>`
+
 #### Примеры ответов на запрос
 
 ```json
@@ -142,6 +268,8 @@ Yandex Golang Practice
 ### Получение выражения по его ID
 
 **Endpoint:** `GET /api/v1/expressions/{id}`
+
+**В заголовке обязательно должен быть:** `Bearer <TOKEN>`
 
 #### Примеры ответов на запрос
 
@@ -201,7 +329,7 @@ cd go-http-calculator-2025
 go mod tidy
 ```
 
-3. По умолчанию сервер запускается на порту 8080.
+4. По умолчанию HTTP сервер запускается на порту 8080.
    - Изменить на Windows:
 
      ```cmd
@@ -230,30 +358,12 @@ go mod tidy
 
     ---
 
-   Агент запускается на порту 8081.
-   - Изменить на Windows:
-
-     ```cmd
-     set AGENT_PORT=3000
-     ```
-
-     или
-
-     ```powershell
-     $env:AGENT_PORT=3000;
-     ```
-
-   - Изменить в Linux:
-
-      ```bash
-      AGENT_PORT=1234
-      ```
-
     Для агента существуют дополнительные параметры
-    - ORCHESTARTOR_ADDRESS - адрес сервера (По умолчанию 8080)
+    - ORCHESTARTOR_ADDRESS - адрес сервера gRPC (По умолчанию localhost)
+    - ORCHESTARTOR_PORT - адрес порта gRPC (по умолчанию 5000)
     - COMPUTING_POWER - вол-во воркеров (По умолчанию 2)
 
-4. Запустить сервер:
+5. Запустить сервер:
 
 ```text
 go run cmd/server/main.go
@@ -265,7 +375,7 @@ go run cmd/server/main.go
 go run cmd/agent/main.go
 ```
 
-5. Остановить приложение:
+6. Остановить приложение:
    Сочетание клавиш `Ctrl + C`
 
 ## Пример использования
@@ -273,7 +383,10 @@ go run cmd/agent/main.go
 -Windows
 
 ```cmd
-curl -X POST http://127.0.0.1:8080/api/v1/calculate -H "Content-Type: application/json" -d "{\"expression\": \"2 + 2\"}"
+curl -X POST http://127.0.0.1:8080/api/v1/calculate \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <твой_токен>" \
+  -d "{\"expression\": \"2 + 2\"}"
 ```
 
 -Linux
@@ -281,6 +394,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/calculate -H "Content-Type: applicatio
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/calculate \
 -H "Content-Type: application/json" \
+-H "Authorization: Bearer <твой_токен>" \
 -d '{"expression": "2 + 2"}'
 ```
 
@@ -375,14 +489,14 @@ curl -X POST http://127.0.0.1:8080/api/v1/calculate \
 3) Делегирует работу над выражением методу handleCalculateRequest;
 4) Используя алгоритм [Shunting Yard](https://youtu.be/y_snKkv0gWc?si=Ymv6muB49Du8upEK) он разбивает выражение;
 5) После того как выражение было разбито, он формирует задачи, и при необходимости в аргументы подставляет ссылки на зависимые задачи в формате `task{id}` (Именно поэтому у меня arg1 и arg2 строки а не числа);
-6) После чего он формирует выражение и добавляет его в мапу;
+6) После чего он формирует выражение и добавляет его в базу данных;
 7) В конце в слайс добавляются все таски.
 ![CalcHandler](https://github.com/user-attachments/assets/57b88336-372b-4324-912e-c9c9ffed693d)
 
 ### Принцип работы `/api/v1/expressions`
 
 1) Сервер принимает GET запрос;
-2) Структуру ExpressionsResponse и добавляет в поле Expressions (слайс из структуры Expression) все выражения;
+2) Структуру ExpressionsResponse и добавляет в поле Expressions (слайс из структуры Expression) все выражения для конкретного пользователя;
 3) Сортирует выражения по ID;
 4) Возвращает JSON массив
 
@@ -392,16 +506,9 @@ curl -X POST http://127.0.0.1:8080/api/v1/calculate \
 2) Проверяет есть ли выражение под таким ID;
 3) В зависимости от результата проверки возвращает ошибку или информаицю в JSON в формате.
 
-### Принцип работы `/internal/task`
+### Принцип работы агента и сервера
 
-1) На данный endpoint могут приходить только два типа запросов:
-
-- POST (отдать результат задачи)
-- GET (получить задачу)
-
-При попытке отправить запрос отличный от этих двух свервер возврщает `405 Method Not Allowed`
-
-- **GET**
+ Агент и сервер соединены между собой протоколом gRPC
 
 1) Сервер смотрит, есть ли у него задачи для агента. При этом он ищёт задачи где два аргумента являются числами, а не ссылками на результат других задач;
 2) Сервер отправляет задачу в формате:
@@ -432,8 +539,8 @@ curl -X POST http://127.0.0.1:8080/api/v1/calculate \
 
 ### Получение задачи (fetchTask)
 
-1) Агент отправляет HTTP-запрос к оркестратору по адресу `http://<orchestrator_address>/internal/task`.
-2) Если запрос успешен (статус 200 OK), агент декодирует ответ в структуру models.Task.
+1) Агент отправляет gRPC запрос на сервер
+2) Если запрос успешен, то задача передается агенту
 3) Если запрос неудачен (например, оркестратор недоступен или вернул ошибку), агент логирует ошибку.
 
 ### Выполнение задачи (executeTask)
@@ -463,7 +570,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/calculate \
 
 ### Отправка результата (sendResult)
 
-1) Агент отправляет результат выполнения задачи обратно в оркестратор по адресу http://<orchestrator_address>/internal/task.
+1) Агент отправляет результат выполнения задачи обратно в оркестратор по адресу.
 2) Если при выполнении задачи возникла ошибка, она также отправляется в оркестратор.
 
 ### Запуск воркеров (RunGoroutines)
