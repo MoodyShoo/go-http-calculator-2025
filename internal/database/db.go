@@ -5,7 +5,7 @@ import (
 
 	expressionrepo "github.com/MoodyShoo/go-http-calculator/internal/database/repository/expression_repo"
 	userrepo "github.com/MoodyShoo/go-http-calculator/internal/database/repository/user_repo"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type Database struct {
@@ -49,7 +49,7 @@ func (d *Database) createTables() error {
 }
 
 func NewInMemoryDatabase() (*Database, error) {
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func NewInMemoryDatabase() (*Database, error) {
 }
 
 func NewDatabase() (*Database, error) {
-	db, err := sql.Open("sqlite3", "calculator.db")
+	db, err := sql.Open("sqlite", "calculator.db")
 	if err != nil {
 		return nil, err
 	}
