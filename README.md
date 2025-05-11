@@ -9,6 +9,8 @@ Yandex Golang Practice
 
 - [Возможности](#возможности)
 - [API](#api)
+  - [Регистрация](#регистрация)
+  - [Авторизация](#авторизация)
   - [Вычисление выражения](#вычисление-выражения)
   - [Список выражений](#список-выражений)
   - [Получение выражения по его ID](#получение-выражения-по-его-id)
@@ -96,7 +98,7 @@ Yandex Golang Practice
 
 ---
 
-### Регистрация
+### Авторизация
 
 **Endpoint:** `POST /api/v1/login`
 
@@ -409,6 +411,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/calculate \
 Тестами покрыты:
 
 - Оркестратор - `/internal/orchestrator/orchestrator_test.go`
+- Хранилище токенов `/internal/auth/auth_test.go`
 - Алгоритм Shunting Yard - `/pkg/calculation/calculation_test.go`
 
 - Запуск тестов
