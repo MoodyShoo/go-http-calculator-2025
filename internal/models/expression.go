@@ -12,11 +12,12 @@ const (
 )
 
 type Expression struct {
-	Id     int     `json:"id"`
+	Id     int64   `json:"id"`
 	Expr   string  `json:"expression"`
 	Status Status  `json:"status"`
 	Result float64 `json:"result"`
 	Error  string  `json:"error,omitempty"`
+	UserID int64   `json:"-"`
 }
 
 func (e *Expression) ToJSON() ([]byte, error) {

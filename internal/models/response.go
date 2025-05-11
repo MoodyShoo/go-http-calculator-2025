@@ -10,7 +10,7 @@ type Response interface {
 // ----- Accepted Response -----
 
 type AcceptedResponse struct {
-	Id int `json:"id"`
+	Id int64 `json:"id"`
 }
 
 func (r *AcceptedResponse) ToJSON() ([]byte, error) {

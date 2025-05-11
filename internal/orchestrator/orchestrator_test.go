@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/MoodyShoo/go-http-calculator/internal/database"
 	"github.com/MoodyShoo/go-http-calculator/internal/orchestrator"
 )
 
@@ -69,7 +70,8 @@ func TestCalculateRoute(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, orchestrator.CalculateRoute, bytes.NewReader([]byte(tc.request)))
 			w := httptest.NewRecorder()
 
-			orchestrator.New().CalculateHandler(w, req)
+			db, _ := database.NewInMemoryDatabase()
+			orchestrator.New(db).CalculateHandler(w, req)
 
 			if status := w.Code; status != tc.statusCode {
 				t.Errorf("Expected status %d, got %d", tc.statusCode, status)
@@ -111,7 +113,8 @@ func TestExpressionsHandler(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			o := orchestrator.New()
+			db, _ := database.NewInMemoryDatabase()
+			o := orchestrator.New(db)
 
 			for _, expr := range tc.expressions {
 				req := httptest.NewRequest(http.MethodPost, orchestrator.CalculateRoute, bytes.NewBufferString(expr))
@@ -181,7 +184,8 @@ func TestExpressionIdHandler(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			o := orchestrator.New()
+			db, _ := database.NewInMemoryDatabase()
+			o := orchestrator.New(db)
 
 			if tc.expression != "" {
 				req := httptest.NewRequest(http.MethodPost, orchestrator.CalculateRoute, bytes.NewBufferString(tc.expression))

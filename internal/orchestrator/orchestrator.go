@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/MoodyShoo/go-http-calculator/internal/database"
 	"github.com/MoodyShoo/go-http-calculator/internal/models"
 	pb "github.com/MoodyShoo/go-http-calculator/internal/proto"
 	"github.com/MoodyShoo/go-http-calculator/pkg/calculation"
@@ -22,19 +23,19 @@ import (
 type Orchestrator struct {
 	pb.OrchestratorServiceServer
 	config           *Config
-	expressions      map[int]models.Expression
-	nextExpressionId int
-	tasks            []models.Task
-	nextTaskId       int
+	db               *database.Database
+	nextExpressionId int64
+	tasks            []*pb.Task
+	nextTaskId       int64
 	mu               sync.Mutex
 }
 
-func New() *Orchestrator {
+func New(db *database.Database) *Orchestrator {
 	return &Orchestrator{
 		config:           configFromEnv(),
-		expressions:      make(map[int]models.Expression),
+		db:               db,
 		nextExpressionId: 1,
-		tasks:            make([]models.Task, 0),
+		tasks:            make([]*pb.Task, 0),
 		nextTaskId:       1,
 	}
 }
@@ -83,8 +84,8 @@ func (o *Orchestrator) operationTime(operation rune) int {
 }
 
 // createTasks создает задачи для выражения.
-func (o *Orchestrator) createTasks(tokens []string, expressionId int) ([]models.Task, error) {
-	var tasks []models.Task
+func (o *Orchestrator) createTasks(tokens []string, expressionId int64) ([]*pb.Task, error) {
+	var tasks []*pb.Task
 	var stack []string
 
 	for _, token := range tokens {
@@ -99,14 +100,14 @@ func (o *Orchestrator) createTasks(tokens []string, expressionId int) ([]models.
 			arg1 := stack[len(stack)-2]
 			stack = stack[:len(stack)-2]
 
-			task := models.Task{
-				Id:            o.nextTaskId,
-				ExpressionId:  expressionId,
+			task := &pb.Task{
+				Id:            int64(o.nextTaskId),
+				ExpressionId:  int64(expressionId),
 				Arg1:          arg1,
 				Arg2:          arg2,
 				Operation:     token,
-				OperationTime: o.operationTime(rune(token[0])),
-				Status:        models.StatusPending,
+				OperationTime: int64(o.operationTime(rune(token[0]))),
+				Status:        string(models.StatusPending),
 			}
 
 			tasks = append(tasks, task)
@@ -121,7 +122,7 @@ func (o *Orchestrator) createTasks(tokens []string, expressionId int) ([]models.
 }
 
 // handleCalculateRequest обрабатывает запрос на вычисление выражения.
-func (o *Orchestrator) handleCalculateRequest(req models.Request) (int, error) {
+func (o *Orchestrator) handleCalculateRequest(req models.Request) (int64, error) {
 	tokens, err := calculation.ShuntingYard(req.Expression)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse expression: %v", err)
@@ -132,10 +133,15 @@ func (o *Orchestrator) handleCalculateRequest(req models.Request) (int, error) {
 		return 0, fmt.Errorf("failed to create tasks: %v", err)
 	}
 
-	o.expressions[o.nextExpressionId] = models.Expression{
+	exp := models.Expression{
 		Id:     o.nextExpressionId,
 		Expr:   req.Expression,
 		Status: models.StatusPending,
+	}
+
+	err = o.db.ExpressionRepo.InsertExpression(exp)
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert expression: %v", err)
 	}
 
 	for _, task := range tasks {
@@ -145,6 +151,33 @@ func (o *Orchestrator) handleCalculateRequest(req models.Request) (int, error) {
 	}
 
 	return o.nextExpressionId, nil
+}
+
+func (o *Orchestrator) recoverTasks() error {
+	expressions, err := o.db.ExpressionRepo.GetComputingAndPending()
+	if err != nil {
+		return err
+	}
+
+	for _, exp := range expressions {
+		tokens, err := calculation.ShuntingYard(exp.Expr)
+		if err != nil {
+			return fmt.Errorf("failed to parse expression: %v", err)
+		}
+
+		tasks, err := o.createTasks(tokens, o.nextExpressionId)
+		if err != nil {
+			return fmt.Errorf("failed to create tasks: %v", err)
+		}
+
+		for _, task := range tasks {
+			o.tasks = append(o.tasks, task)
+			log.Printf("Added task id: %d; ExpressionId: %d; Arg1: %s; Arg2: %s; Operation: %s; OperationTime: %d;",
+				task.Id, task.ExpressionId, task.Arg1, task.Arg2, task.Operation, task.OperationTime)
+		}
+	}
+
+	return nil
 }
 
 // CalculateHandler обрабатывает HTTP-запрос на вычисление выражения
@@ -192,19 +225,20 @@ func (o *Orchestrator) ExpressionsHandler(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set(ContentType, ApplicationJson)
 
-	response := models.ExpressionsResponse{
-		Expressions: make([]models.Expression, 0, len(o.expressions)),
+	response, err := o.db.ExpressionRepo.GetExpressions()
+	if err != nil {
+		sendError(w, err.Error(), http.StatusInternalServerError)
 	}
 
-	for _, expr := range o.expressions {
-		response.Expressions = append(response.Expressions, expr)
+	if response != nil {
+		sort.Slice(response, func(i, j int) bool {
+			return response[i].Id < response[j].Id
+		})
+	} else {
+		response = make([]models.Expression, 0)
 	}
 
-	sort.Slice(response.Expressions, func(i, j int) bool {
-		return response.Expressions[i].Id < response.Expressions[j].Id
-	})
-
-	sendResponse(w, &response, http.StatusOK)
+	sendResponse(w, &models.ExpressionsResponse{Expressions: response}, http.StatusOK)
 }
 
 // ExpressionIdHandler возвращает выражение по его ID
@@ -218,14 +252,14 @@ func (o *Orchestrator) ExpressionIdHandler(w http.ResponseWriter, r *http.Reques
 	w.Header().Set(ContentType, ApplicationJson)
 
 	idStr := strings.TrimPrefix(r.URL.Path, ExpressionIdRoute)
-	id, err := strconv.Atoi(idStr)
+	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		sendError(w, "invalid ID", http.StatusBadRequest)
 		return
 	}
 
-	expression, exists := o.expressions[id]
-	if !exists {
+	expression, exists := o.db.ExpressionRepo.GetExpressionByID(id)
+	if exists != nil {
 		sendError(w, "expression not found", http.StatusNotFound)
 		return
 	}
@@ -237,14 +271,18 @@ func (o *Orchestrator) FetchTask(ctx context.Context, in *pb.TaskRequest) (*pb.T
 	log.Println("Invoked FetchTask: ", in)
 
 	for i, task := range o.tasks {
-		if task.Status == models.StatusPending && !isTaskReference(task.Arg1) && !isTaskReference(task.Arg2) {
-			task.Status = models.StatusComputing
+		if task.Status == string(models.StatusPending) && !isTaskReference(task.Arg1) && !isTaskReference(task.Arg2) {
+			task.Status = string(models.StatusComputing)
 			o.tasks[i] = task
 
-			expression := o.expressions[task.ExpressionId]
+			expression, err := o.db.ExpressionRepo.GetExpressionByID(task.ExpressionId)
+			if err != nil {
+				return nil, err
+			}
+
 			if expression.Status != models.StatusDone {
 				expression.Status = models.StatusComputing
-				o.expressions[task.ExpressionId] = expression
+				o.db.ExpressionRepo.UpdateExpression(task.ExpressionId, expression)
 			}
 
 			return &pb.TaskResponse{
@@ -271,11 +309,11 @@ func (o *Orchestrator) SendResult(ctx context.Context, in *pb.TaskResult) (*pb.S
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	var task models.Task
+	var task *pb.Task
 	var taskIndex int
 	var found bool
 	for i, t := range o.tasks {
-		if t.Id == int(in.Id) {
+		if t.Id == in.Id {
 			task = t
 			taskIndex = i
 			found = true
@@ -289,10 +327,10 @@ func (o *Orchestrator) SendResult(ctx context.Context, in *pb.TaskResult) (*pb.S
 
 	// Обновляет статус задачи
 	if in.Error != "" {
-		task.Status = models.StatusError
+		task.Status = string(models.StatusError)
 		task.Error = in.Error
 	} else {
-		task.Status = models.StatusDone
+		task.Status = string(models.StatusDone)
 		task.Result = in.Result
 	}
 
@@ -300,7 +338,7 @@ func (o *Orchestrator) SendResult(ctx context.Context, in *pb.TaskResult) (*pb.S
 
 	// Обновляет аргументы в других задачах, если они ссылаются на эту задачу
 	for i, t := range o.tasks {
-		if t.ExpressionId == task.ExpressionId && t.Status == models.StatusPending {
+		if t.ExpressionId == task.ExpressionId && t.Status == string(models.StatusPending) {
 			if strings.HasPrefix(t.Arg1, "task") && t.Arg1 == fmt.Sprintf("task%d", task.Id) {
 				t.Arg1 = fmt.Sprintf("%f", task.Result)
 			}
@@ -314,25 +352,28 @@ func (o *Orchestrator) SendResult(ctx context.Context, in *pb.TaskResult) (*pb.S
 	// Проверка, все ли задачи для этого выражения выполнены
 	allTasksDone := true
 	for _, t := range o.tasks {
-		if t.ExpressionId == task.ExpressionId && t.Status != models.StatusDone && t.Status != models.StatusError {
+		if t.ExpressionId == task.ExpressionId && t.Status != string(models.StatusDone) && t.Status != string(models.StatusError) {
 			allTasksDone = false
 			break
 		}
 	}
 
 	if allTasksDone {
-		expression := o.expressions[task.ExpressionId]
+		expression, err := o.db.ExpressionRepo.GetExpressionByID(task.ExpressionId)
+		if err != nil {
+			return nil, err
+		}
 		expression.Result = task.Result
-		if task.Status == models.StatusError {
+		if task.Status == string(models.StatusError) {
 			expression.Status = models.StatusError
 			expression.Error = task.Error
 		} else {
 			expression.Status = models.StatusDone
 		}
-		o.expressions[task.ExpressionId] = expression
+		o.db.ExpressionRepo.UpdateExpression(task.ExpressionId, expression)
 
 		// Удаляет все задачи, связанные с выполненным выражением
-		var remainingTasks []models.Task
+		var remainingTasks []*pb.Task
 		for _, t := range o.tasks {
 			if t.ExpressionId != expression.Id {
 				remainingTasks = append(remainingTasks, t)
@@ -374,6 +415,8 @@ func (o *Orchestrator) RunServer() error {
 			log.Fatalf("Start gRPC server error: %v", err)
 		}
 	}()
+
+	o.recoverTasks()
 
 	log.Printf("HTTP server running on: %s", o.config.Address)
 	return http.ListenAndServe(":"+o.config.Address, nil)
