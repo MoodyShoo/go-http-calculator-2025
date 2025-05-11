@@ -13,9 +13,12 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/MoodyShoo/go-http-calculator/internal/auth"
 	"github.com/MoodyShoo/go-http-calculator/internal/database"
+	"github.com/MoodyShoo/go-http-calculator/internal/middleware"
 	"github.com/MoodyShoo/go-http-calculator/internal/models"
 	pb "github.com/MoodyShoo/go-http-calculator/internal/proto"
+	"github.com/MoodyShoo/go-http-calculator/internal/util"
 	"github.com/MoodyShoo/go-http-calculator/pkg/calculation"
 	"google.golang.org/grpc"
 )
@@ -24,6 +27,7 @@ type Orchestrator struct {
 	pb.OrchestratorServiceServer
 	config     *Config
 	db         *database.Database
+	Ts         auth.TokenStore
 	tasks      []*pb.Task
 	nextTaskId int64
 	mu         sync.Mutex
@@ -33,30 +37,10 @@ func New(db *database.Database) *Orchestrator {
 	return &Orchestrator{
 		config:     configFromEnv(),
 		db:         db,
+		Ts:         *auth.NewTokenStore(),
 		tasks:      make([]*pb.Task, 0),
 		nextTaskId: 1,
 	}
-}
-
-// sendResponse отправляет ответ клиенту
-func sendResponse(w http.ResponseWriter, response models.Response, status int) {
-	w.WriteHeader(status)
-	resp, err := response.ToJSON()
-	if err != nil {
-		sendError(w, "Failed to encode response", status)
-		return
-	}
-	log.Printf("Response sent.")
-	w.Write(resp)
-}
-
-// sendError отправляет ошибку клиенту.
-func sendError(w http.ResponseWriter, message string, status int) {
-	w.Header().Set(ContentType, ApplicationJson)
-	w.WriteHeader(status)
-	resp, _ := json.Marshal(map[string]string{"error": message})
-	log.Printf("Error response sent.")
-	w.Write(resp)
 }
 
 // isNumber проверяет, является ли строка числом.
@@ -120,15 +104,11 @@ func (o *Orchestrator) createTasks(tokens []string, expressionId int64) ([]*pb.T
 }
 
 // handleCalculateRequest обрабатывает запрос на вычисление выражения.
-func (o *Orchestrator) handleCalculateRequest(req models.Request) (int64, error) {
-	tokens, err := calculation.ShuntingYard(req.Expression)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse expression: %v", err)
-	}
-
+func (o *Orchestrator) handleCalculateRequest(req models.Request, userId int64) (int64, error) {
 	exp := models.Expression{
 		Expr:   req.Expression,
 		Status: models.StatusPending,
+		UserID: userId,
 	}
 
 	id, err := o.db.ExpressionRepo.InsertExpression(exp)
@@ -136,21 +116,15 @@ func (o *Orchestrator) handleCalculateRequest(req models.Request) (int64, error)
 		return 0, fmt.Errorf("failed to insert expression: %v", err)
 	}
 
-	tasks, err := o.createTasks(tokens, id)
+	err = o.addTasks()
 	if err != nil {
-		return 0, fmt.Errorf("failed to create tasks: %v", err)
-	}
-
-	for _, task := range tasks {
-		o.tasks = append(o.tasks, task)
-		log.Printf("Added task id: %d; ExpressionId: %d; Arg1: %s; Arg2: %s; Operation: %s; OperationTime: %d;",
-			task.Id, task.ExpressionId, task.Arg1, task.Arg2, task.Operation, task.OperationTime)
+		return 0, err
 	}
 
 	return id, nil
 }
 
-func (o *Orchestrator) recoverTasks() error {
+func (o *Orchestrator) addTasks() error {
 	expressions, err := o.db.ExpressionRepo.GetComputingAndPending()
 	if err != nil {
 		return err
@@ -185,30 +159,34 @@ func (o *Orchestrator) CalculateHandler(w http.ResponseWriter, r *http.Request) 
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	w.Header().Set(ContentType, ApplicationJson)
-
 	var req models.Request
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Printf("CalculateHandler: failed to decode request body: %v", err)
-		sendError(w, "unprocessable entity", http.StatusUnprocessableEntity)
+		util.SendError(w, "unprocessable entity", http.StatusUnprocessableEntity)
 		return
 	}
 
 	if req.Expression == "" {
-		sendError(w, "unprocessable entity", http.StatusUnprocessableEntity)
+		util.SendError(w, "unprocessable entity", http.StatusUnprocessableEntity)
 		return
 	}
 
 	log.Printf("CalculateHandler: processing expression: %s", req.Expression)
 
-	expressionId, err := o.handleCalculateRequest(req)
-	if err != nil {
-		log.Printf("CalculateHandler: %v", err)
-		sendError(w, err.Error(), http.StatusInternalServerError)
+	userId, ok := middleware.GetUserID(r)
+	if !ok {
+		util.SendError(w, "user ID not found in context", http.StatusUnauthorized)
 		return
 	}
 
-	sendResponse(w, &models.AcceptedResponse{Id: expressionId}, http.StatusAccepted)
+	expressionId, err := o.handleCalculateRequest(req, userId)
+	if err != nil {
+		log.Printf("CalculateHandler: %v", err)
+		util.SendError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	util.SendResponse(w, &models.AcceptedResponse{Id: expressionId}, http.StatusAccepted)
 }
 
 // ExpressionsHandler возвращает список всех выражений
@@ -216,14 +194,18 @@ func (o *Orchestrator) ExpressionsHandler(w http.ResponseWriter, r *http.Request
 	log.Printf("ExpressionsHandler: started")
 	defer log.Printf("ExpressionsHandler: finished")
 
+	userId, ok := middleware.GetUserID(r)
+	if !ok {
+		util.SendError(w, "user ID not found in context", http.StatusUnauthorized)
+		return
+	}
+
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	w.Header().Set(ContentType, ApplicationJson)
-
-	response, err := o.db.ExpressionRepo.GetExpressions()
+	response, err := o.db.ExpressionRepo.GetExpressionsByUser(userId)
 	if err != nil {
-		sendError(w, err.Error(), http.StatusInternalServerError)
+		util.SendError(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	if response != nil {
@@ -234,7 +216,7 @@ func (o *Orchestrator) ExpressionsHandler(w http.ResponseWriter, r *http.Request
 		response = make([]models.Expression, 0)
 	}
 
-	sendResponse(w, &models.ExpressionsResponse{Expressions: response}, http.StatusOK)
+	util.SendResponse(w, &models.ExpressionsResponse{Expressions: response}, http.StatusOK)
 }
 
 // ExpressionIdHandler возвращает выражение по его ID
@@ -245,25 +227,32 @@ func (o *Orchestrator) ExpressionIdHandler(w http.ResponseWriter, r *http.Reques
 	log.Printf("ExpressionIdHandler: started")
 	defer log.Printf("ExpressionIdHandler: finished")
 
-	w.Header().Set(ContentType, ApplicationJson)
-
 	idStr := strings.TrimPrefix(r.URL.Path, ExpressionIdRoute)
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
-		sendError(w, "invalid ID", http.StatusBadRequest)
+		util.SendError(w, "invalid ID", http.StatusBadRequest)
 		return
 	}
 
-	expression, exists := o.db.ExpressionRepo.GetExpressionByID(id)
+	userId, ok := middleware.GetUserID(r)
+	if !ok {
+		util.SendError(w, "user ID not found in context", http.StatusUnauthorized)
+		return
+	}
+
+	expression, exists := o.db.ExpressionRepo.GetExpressionByIDByUser(id, userId)
 	if exists != nil {
-		sendError(w, "expression not found", http.StatusNotFound)
+		util.SendError(w, "expression not found", http.StatusNotFound)
 		return
 	}
 
-	sendResponse(w, &expression, http.StatusOK)
+	util.SendResponse(w, &expression, http.StatusOK)
 }
 
 func (o *Orchestrator) FetchTask(ctx context.Context, in *pb.TaskRequest) (*pb.TaskResponse, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
 	log.Println("Invoked FetchTask: ", in)
 
 	for i, task := range o.tasks {
@@ -386,11 +375,92 @@ func isTaskReference(arg string) bool {
 	return strings.HasPrefix(arg, "task")
 }
 
+// Хендлер регистрации
+func (o *Orchestrator) RegisterHandler(w http.ResponseWriter, r *http.Request) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	// Логирование входящего запроса
+	log.Printf("RegisterHandler: received %s request", r.Method)
+
+	if r.Method != http.MethodPost {
+		log.Printf("RegisterHandler: invalid method %s", r.Method)
+		util.SendError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req models.UserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("RegisterHandler: failed to decode request body: %v", err)
+		util.SendError(w, "unprocessable entity", http.StatusUnprocessableEntity)
+		return
+	}
+
+	log.Printf("RegisterHandler: registering user with login %s", req.Login)
+
+	err := o.db.UserRepo.AddUser(req.Login, req.Password)
+	if err != nil {
+		log.Printf("RegisterHandler: failed to add user %s: %v", req.Login, err)
+		util.SendError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("RegisterHandler: successfully registered user %s", req.Login)
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// Хендлер логина
+func (o *Orchestrator) LoginHandler(w http.ResponseWriter, r *http.Request) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	// Логирование входящего запроса
+	log.Printf("LoginHandler: received %s request", r.Method)
+
+	if r.Method != http.MethodPost {
+		log.Printf("LoginHandler: invalid method %s", r.Method)
+		util.SendError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req models.UserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("LoginHandler: failed to decode request body: %v", err)
+		util.SendError(w, "unprocessable entity", http.StatusUnprocessableEntity)
+		return
+	}
+
+	log.Printf("LoginHandler: attempting to login user %s", req.Login)
+
+	user, err := o.db.UserRepo.GetUser(req.Login, req.Password)
+	if err != nil {
+		log.Printf("LoginHandler: failed to authenticate user %s: %v", req.Login, err)
+		util.SendError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	log.Printf("LoginHandler: user %s authenticated successfully", req.Login)
+
+	token, err := o.Ts.AddToken(user.Id)
+	if err != nil {
+		log.Printf("LoginHandler: failed to create token for user %s: %v", req.Login, err)
+		util.SendError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	log.Printf("LoginHandler: token created for user %s", req.Login)
+
+	util.SendResponse(w, &models.AuthResponse{Token: token}, http.StatusOK)
+}
+
 // RunServer запускает HTTP-сервер и gRPC сервер
 func (o *Orchestrator) RunServer() error {
-	http.HandleFunc(CalculateRoute, o.CalculateHandler)
-	http.HandleFunc(ExpressionsRoute, o.ExpressionsHandler)
-	http.HandleFunc(ExpressionIdRoute, o.ExpressionIdHandler)
+	http.HandleFunc(RegisterRoute, o.RegisterHandler)
+	http.HandleFunc(LoginRoute, o.LoginHandler)
+	http.HandleFunc(CalculateRoute, middleware.AuthMiddleware(&o.Ts, o.CalculateHandler))
+	http.HandleFunc(ExpressionsRoute, middleware.AuthMiddleware(&o.Ts, o.ExpressionsHandler))
+	http.HandleFunc(ExpressionIdRoute, middleware.AuthMiddleware(&o.Ts, o.ExpressionIdHandler))
 
 	// горутина для gRPC сервера
 	go func() {
@@ -412,7 +482,7 @@ func (o *Orchestrator) RunServer() error {
 		}
 	}()
 
-	o.recoverTasks()
+	o.addTasks()
 
 	log.Printf("HTTP server running on: %s", o.config.Address)
 	return http.ListenAndServe(":"+o.config.Address, nil)

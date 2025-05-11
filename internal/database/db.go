@@ -72,7 +72,7 @@ func NewInMemoryDatabase() (*Database, error) {
 }
 
 func NewDatabase() (*Database, error) {
-	db, err := sql.Open("sqlite3", "store.db")
+	db, err := sql.Open("sqlite3", "calculator.db")
 	if err != nil {
 		return nil, err
 	}

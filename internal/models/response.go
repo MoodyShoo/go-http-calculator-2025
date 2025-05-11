@@ -36,3 +36,13 @@ type SuccessResponse struct {
 func (r *SuccessResponse) ToJSON() ([]byte, error) {
 	return json.Marshal(r)
 }
+
+// ----- Auth Response -----
+
+type AuthResponse struct {
+	Token string `json:"token"`
+}
+
+func (r *AuthResponse) ToJSON() ([]byte, error) {
+	return json.Marshal(r)
+}

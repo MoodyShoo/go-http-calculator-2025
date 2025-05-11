@@ -40,6 +40,18 @@ func (er *ExpressionRepo) UpdateExpression(id int64, newExpr models.Expression) 
 	return nil
 }
 
+func (er *ExpressionRepo) GetExpressionByIDByUser(id, userId int64) (models.Expression, error) {
+	e := models.Expression{}
+	query := `SELECT * FROM expressions WHERE id = $1 AND user_id = $2`
+
+	err := er.Db.QueryRow(query, id, userId).Scan(&e.Id, &e.Expr, &e.Status, &e.Result, &e.Error, &e.UserID)
+	if err != nil {
+		return models.Expression{}, err
+	}
+
+	return e, nil
+}
+
 func (er *ExpressionRepo) GetExpressionByID(id int64) (models.Expression, error) {
 	e := models.Expression{}
 	query := `SELECT * FROM expressions WHERE id = $1`
@@ -52,11 +64,11 @@ func (er *ExpressionRepo) GetExpressionByID(id int64) (models.Expression, error)
 	return e, nil
 }
 
-func (er *ExpressionRepo) GetExpressions() ([]models.Expression, error) {
+func (er *ExpressionRepo) GetExpressionsByUser(userId int64) ([]models.Expression, error) {
 	var expressions []models.Expression
-	query := "SELECT * FROM expressions"
+	query := "SELECT * FROM expressions WHERE user_id = $1"
 
-	rows, err := er.Db.Query(query)
+	rows, err := er.Db.Query(query, userId)
 	if err != nil {
 		return nil, err
 	}

@@ -8,9 +8,6 @@ const (
 	ExpressionIdRoute = "/api/v1/expressions/"
 	TaskRoute         = "/internal/task"
 
-	ContentType     = "Content-Type"
-	ApplicationJson = "application/json"
-
 	PortEnv                  = "PORT"
 	GRPCAddressEnv           = "GRPC_ADDRESS"
 	GRPCPortEnv              = "GRPC_PORT"
