@@ -270,15 +270,17 @@ func (o *Orchestrator) FetchTask(ctx context.Context, in *pb.TaskRequest) (*pb.T
 				o.db.ExpressionRepo.UpdateExpression(task.ExpressionId, expression)
 			}
 
+			log.Println("sent task: ", task.Id)
+
 			return &pb.TaskResponse{
 				Task: &pb.Task{
-					Id:            int64(task.Id),
-					ExpressionId:  int64(task.ExpressionId),
+					Id:            task.Id,
+					ExpressionId:  task.ExpressionId,
 					Arg1:          task.Arg1,
 					Arg2:          task.Arg2,
 					Operation:     task.Operation,
-					OperationTime: int64(task.OperationTime),
-					Status:        string(task.Status),
+					OperationTime: task.OperationTime,
+					Status:        task.Status,
 					Result:        task.Result,
 					Error:         task.Error,
 				},
@@ -286,6 +288,7 @@ func (o *Orchestrator) FetchTask(ctx context.Context, in *pb.TaskRequest) (*pb.T
 		}
 	}
 
+	log.Println("no tasks available")
 	return nil, fmt.Errorf("no tasks available")
 }
 
