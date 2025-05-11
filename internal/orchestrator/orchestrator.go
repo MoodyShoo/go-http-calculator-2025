@@ -383,7 +383,6 @@ func (o *Orchestrator) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	// Логирование входящего запроса
 	log.Printf("RegisterHandler: received %s request", r.Method)
 
 	if r.Method != http.MethodPost {
@@ -423,7 +422,6 @@ func (o *Orchestrator) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	// Логирование входящего запроса
 	log.Printf("LoginHandler: received %s request", r.Method)
 
 	if r.Method != http.MethodPost {
