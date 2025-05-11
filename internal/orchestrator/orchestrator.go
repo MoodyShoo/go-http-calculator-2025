@@ -22,21 +22,19 @@ import (
 
 type Orchestrator struct {
 	pb.OrchestratorServiceServer
-	config           *Config
-	db               *database.Database
-	nextExpressionId int64
-	tasks            []*pb.Task
-	nextTaskId       int64
-	mu               sync.Mutex
+	config     *Config
+	db         *database.Database
+	tasks      []*pb.Task
+	nextTaskId int64
+	mu         sync.Mutex
 }
 
 func New(db *database.Database) *Orchestrator {
 	return &Orchestrator{
-		config:           configFromEnv(),
-		db:               db,
-		nextExpressionId: 1,
-		tasks:            make([]*pb.Task, 0),
-		nextTaskId:       1,
+		config:     configFromEnv(),
+		db:         db,
+		tasks:      make([]*pb.Task, 0),
+		nextTaskId: 1,
 	}
 }
 
@@ -128,20 +126,19 @@ func (o *Orchestrator) handleCalculateRequest(req models.Request) (int64, error)
 		return 0, fmt.Errorf("failed to parse expression: %v", err)
 	}
 
-	tasks, err := o.createTasks(tokens, o.nextExpressionId)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create tasks: %v", err)
-	}
-
 	exp := models.Expression{
-		Id:     o.nextExpressionId,
 		Expr:   req.Expression,
 		Status: models.StatusPending,
 	}
 
-	err = o.db.ExpressionRepo.InsertExpression(exp)
+	id, err := o.db.ExpressionRepo.InsertExpression(exp)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert expression: %v", err)
+	}
+
+	tasks, err := o.createTasks(tokens, id)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create tasks: %v", err)
 	}
 
 	for _, task := range tasks {
@@ -150,7 +147,7 @@ func (o *Orchestrator) handleCalculateRequest(req models.Request) (int64, error)
 			task.Id, task.ExpressionId, task.Arg1, task.Arg2, task.Operation, task.OperationTime)
 	}
 
-	return o.nextExpressionId, nil
+	return id, nil
 }
 
 func (o *Orchestrator) recoverTasks() error {
@@ -165,7 +162,7 @@ func (o *Orchestrator) recoverTasks() error {
 			return fmt.Errorf("failed to parse expression: %v", err)
 		}
 
-		tasks, err := o.createTasks(tokens, o.nextExpressionId)
+		tasks, err := o.createTasks(tokens, exp.Id)
 		if err != nil {
 			return fmt.Errorf("failed to create tasks: %v", err)
 		}
@@ -212,7 +209,6 @@ func (o *Orchestrator) CalculateHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	sendResponse(w, &models.AcceptedResponse{Id: expressionId}, http.StatusAccepted)
-	o.nextExpressionId++
 }
 
 // ExpressionsHandler возвращает список всех выражений
@@ -398,8 +394,8 @@ func (o *Orchestrator) RunServer() error {
 
 	// горутина для gRPC сервера
 	go func() {
-		host := "localhost"
-		port := "5000"
+		host := o.config.AddressGRPC
+		port := o.config.PortGRPC
 		addr := fmt.Sprintf("%s:%s", host, port)
 		lis, err := net.Listen("tcp", addr)
 		if err != nil {

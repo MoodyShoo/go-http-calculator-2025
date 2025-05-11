@@ -6,18 +6,24 @@ import (
 )
 
 type Config struct {
-	OrchestratorGRPC string
-	ComputingPower   int
+	OrchestratorGRPCAddress string
+	OrchestratorGRPCPort    string
+	ComputingPower          int
 }
 
 func configFromEnv() *Config {
 	config := Config{
-		OrchestratorGRPC: "localhost:5000",
-		ComputingPower:   2,
+		OrchestratorGRPCAddress: "localhost",
+		OrchestratorGRPCPort:    "5000",
+		ComputingPower:          2,
 	}
 
-	if orchAddr := os.Getenv(OrchestratorGRPCEnv); orchAddr != "" {
-		config.OrchestratorGRPC = orchAddr
+	if orchAddr := os.Getenv(config.OrchestratorGRPCAddress); orchAddr != "" {
+		config.OrchestratorGRPCAddress = orchAddr
+	}
+
+	if orchPort := os.Getenv(config.OrchestratorGRPCPort); orchPort != "" {
+		config.OrchestratorGRPCPort = orchPort
 	}
 
 	if val := os.Getenv(ComputingPowerEnv); val != "" {

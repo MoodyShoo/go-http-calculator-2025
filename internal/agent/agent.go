@@ -22,7 +22,8 @@ type Agent struct {
 func New() *Agent {
 	conf := configFromEnv()
 
-	conn, err := grpc.NewClient(conf.OrchestratorGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	addr := fmt.Sprintf("%s:%s", conf.OrchestratorGRPCAddress, conf.OrchestratorGRPCPort)
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 	}
@@ -147,7 +148,7 @@ func (a *Agent) RunGoroutines(num int) {
 func (a *Agent) Run() {
 	var wt sync.WaitGroup
 	wt.Add(a.config.ComputingPower)
-	log.Printf("Agent listens: %s", a.config.OrchestratorGRPC)
+	log.Printf("Agent listens: %s:%s", a.config.OrchestratorGRPCAddress, a.config.OrchestratorGRPCPort)
 	a.RunGoroutines(a.config.ComputingPower)
 
 	wt.Wait()

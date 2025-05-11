@@ -12,6 +12,8 @@ const (
 	ApplicationJson = "application/json"
 
 	PortEnv                  = "PORT"
+	GRPCAddressEnv           = "GRPC_ADDRESS"
+	GRPCPortEnv              = "GRPC_PORT"
 	TimeAdditionMsEnv        = "TIME_ADDITION_MS"
 	TimeSubtractionMsEnv     = "TIME_SUBTRACTION_MS"
 	TimeMultiplicationsMsEnv = "TIME_MULTIPLICATIONS_MS"

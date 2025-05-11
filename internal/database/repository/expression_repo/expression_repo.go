@@ -10,16 +10,21 @@ type ExpressionRepo struct {
 	Db *sql.DB
 }
 
-func (er *ExpressionRepo) InsertExpression(exp models.Expression) error {
+func (er *ExpressionRepo) InsertExpression(exp models.Expression) (int64, error) {
 	query := `INSERT INTO expressions (expression, status, result, error, user_id)
 				VALUES ($1, $2, $3, $4, $5)`
 
-	_, err := er.Db.Exec(query, exp.Expr, exp.Status, exp.Result, exp.Error, exp.UserID)
+	result, err := er.Db.Exec(query, exp.Expr, exp.Status, exp.Result, exp.Error, exp.UserID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	return nil
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	return id, nil
 }
 
 func (er *ExpressionRepo) UpdateExpression(id int64, newExpr models.Expression) error {

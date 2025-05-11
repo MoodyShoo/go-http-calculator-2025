@@ -1,7 +1,7 @@
 package agent
 
 const (
-	PortEnv             = "AGENT_PORT"
-	OrchestratorGRPCEnv = "ORCHESTARTOR_ADDRESS"
-	ComputingPowerEnv   = "COMPUTING_POWER"
+	PortEnv                = "ORCHESTARTOR_PORT"
+	OrchestratorAddressEnv = "ORCHESTARTOR_ADDRESS"
+	ComputingPowerEnv      = "COMPUTING_POWER"
 )
