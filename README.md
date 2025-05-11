@@ -195,6 +195,12 @@ https://github.com/MoodyShoo/go-http-calculator-2025.git
 cd go-http-calculator-2025
 ```
 
+3. Установить все зависимости
+
+```bash
+go mod tidy
+```
+
 3. По умолчанию сервер запускается на порту 8080.
    - Изменить на Windows:
 
@@ -357,10 +363,8 @@ curl -X POST http://127.0.0.1:8080/api/v1/calculate \
 - `/api/v1/calculate`
 - `/api/v1/expressions`
 - `/api/v1/expressions/{id}`
-
-И один служебный
-
-- `/internal/task`
+- `/api/v1/register`
+- `/api/v1/login`
 
 ---
 
